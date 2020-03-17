@@ -1,0 +1,4 @@
+cat1, product1, 10
+cat2, product2, 15
+cat3, product1, 21
+cat4, product2, 26

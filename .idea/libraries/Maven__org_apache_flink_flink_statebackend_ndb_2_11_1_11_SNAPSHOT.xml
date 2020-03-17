@@ -1,0 +1,13 @@
+<component name="libraryTable">
+  <library name="Maven: org.apache.flink:flink-statebackend-ndb_2.11:1.11-SNAPSHOT">
+    <CLASSES>
+      <root url="jar://$MAVEN_REPOSITORY$/org/apache/flink/flink-statebackend-ndb_2.11/1.11-SNAPSHOT/flink-statebackend-ndb_2.11-1.11-SNAPSHOT.jar!/" />
+    </CLASSES>
+    <JAVADOC>
+      <root url="jar://$MAVEN_REPOSITORY$/org/apache/flink/flink-statebackend-ndb_2.11/1.11-SNAPSHOT/flink-statebackend-ndb_2.11-1.11-SNAPSHOT-javadoc.jar!/" />
+    </JAVADOC>
+    <SOURCES>
+      <root url="jar://$MAVEN_REPOSITORY$/org/apache/flink/flink-statebackend-ndb_2.11/1.11-SNAPSHOT/flink-statebackend-ndb_2.11-1.11-SNAPSHOT-sources.jar!/" />
+    </SOURCES>
+  </library>
+</component>

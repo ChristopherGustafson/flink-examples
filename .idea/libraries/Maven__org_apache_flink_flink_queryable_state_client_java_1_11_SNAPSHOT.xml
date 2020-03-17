@@ -1,0 +1,13 @@
+<component name="libraryTable">
+  <library name="Maven: org.apache.flink:flink-queryable-state-client-java:1.11-SNAPSHOT">
+    <CLASSES>
+      <root url="jar://$MAVEN_REPOSITORY$/org/apache/flink/flink-queryable-state-client-java/1.11-SNAPSHOT/flink-queryable-state-client-java-1.11-20200312.033722-85.jar!/" />
+    </CLASSES>
+    <JAVADOC>
+      <root url="jar://$MAVEN_REPOSITORY$/org/apache/flink/flink-queryable-state-client-java/1.11-SNAPSHOT/flink-queryable-state-client-java-1.11-20200312.033722-85-javadoc.jar!/" />
+    </JAVADOC>
+    <SOURCES>
+      <root url="jar://$MAVEN_REPOSITORY$/org/apache/flink/flink-queryable-state-client-java/1.11-SNAPSHOT/flink-queryable-state-client-java-1.11-20200312.033722-85-sources.jar!/" />
+    </SOURCES>
+  </library>
+</component>
