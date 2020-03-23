@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>my-flink-project</groupId>
-  <artifactId>my-flink-project</artifactId>
+  <groupId>flink-examples</groupId>
+  <artifactId>flink-examples</artifactId>
   <name>Flink Quickstart Job</name>
   <version>0.1</version>
   <url>http://www.myorganization.org</url>
@@ -135,7 +135,9 @@
       <releases>
         <enabled>false</enabled>
       </releases>
-      <snapshots />
+      <snapshots>
+        <updatePolicy>never</updatePolicy>
+      </snapshots>
       <id>apache.snapshots</id>
       <name>Apache Development Snapshot Repository</name>
       <url>https://repository.apache.org/content/repositories/snapshots/</url>

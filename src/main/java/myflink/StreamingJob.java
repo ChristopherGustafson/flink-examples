@@ -90,14 +90,13 @@ public class StreamingJob {
         //env.setStateBackend(new Rocks)
         Configuration config = new Configuration();
         //config.setString("state.backend","filesystem");
-        config.setString("state.backend", "rocksdb");
+        //config.setString("state.backend", "rocksdb");
         config.setString("state.backend", "ndb");
         config.setString("state.backend.ndb.connectionstring", "localhost");
         config.setString("state.backend.ndb.dbname", "flinkndb");
 
         config.setString("state.savepoints.dir", "file:///tmp/flinksavepoints");
         config.setString("state.checkpoints.dir", "file:///tmp/flinkcheckpoints");
-
 
         config.setString("web.timeout", "100000");
 
@@ -109,8 +108,12 @@ public class StreamingJob {
 
         //env.setParallelism(1);
 
-        int example = 4;
+        int example = 12;
+        //Testing - Done
+        //valueState  - 1,3, 4, 101-Clear, 11,12
 
+       //Failed
+        //priorityQueue -- 2
 
         switch (example) {
             case 1:
@@ -123,7 +126,7 @@ public class StreamingJob {
                 WordCountExample(env); //need to start the external util
                 break;
             case 4:
-                WordCountExampleFromFile(env); //Does use valuestate automatically
+                WordCountExampleFromFile(env); //Does use value state automatically
                 break;
             case 5:
                 UdemyCourseAssignment(env);
@@ -142,13 +145,18 @@ public class StreamingJob {
                 break;
             case 12:
                 ReduceExample(env);
-                //state examples starting with 1**
+                break;
+
+            //state examples starting with 1**
             case 101:
                 SumByStatelessOperatorsUsingValueState(env);
+                break;
             case 102:
                 SumByStatelessOperatorsUsingListState(env);
+                break;
             case 103:
                 SumByStatelessOperatorsUsingReducingState(env);
+                break;
             case 104:
                 //MapStateOperation(env);
             default:
@@ -793,8 +801,9 @@ public class StreamingJob {
 
     /**
      * We are going to use stateless operator to do stateful operation with the help of external type of state, even
-     * when we can acheive the same using window and sum operation
-     *
+     * when we can achieve the same using window and sum operation
+     * This method will read a text file with key and value and emit a sum after 5 keys of same type and result will be
+     * non-deterministic because of the arrival of keys isn't guaranteed
      * @param env
      * @throws Exception
      */
@@ -828,6 +837,7 @@ public class StreamingJob {
                                     countValueState.clear();
                                 } else {
                                     //NDB should be consistent with default values by giving us 0 on first read
+                                    //It is consistent as we are using defaultvalue method for null values
                                     countValueState.update(count + 1);
                                     sumValueState.update(sum + value.f1);
                                 }
@@ -1015,7 +1025,7 @@ public class StreamingJob {
                         .keyBy(new KeySelector<Tuple2<CabRide, Integer>, Integer>() {
                             @Override
                             public Integer getKey(Tuple2<CabRide, Integer> cabRideIntegerTuple2) throws Exception {
-                                return cabRideIntegerTuple2.f0.PassengerCount % 2;
+                                return cabRideIntegerTuple2.f0.Id.hashCode() % 8;
                             }
                         })
                         .sum(1);
