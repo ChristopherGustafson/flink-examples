@@ -90,8 +90,8 @@ public class StreamingJob {
         //env.setStateBackend(new Rocks)
         Configuration config = new Configuration();
         //config.setString("state.backend","filesystem");
-        //config.setString("state.backend", "rocksdb");
-        //config.setString("state.backend", "ndb");
+        config.setString("state.backend", "rocksdb");
+        config.setString("state.backend", "ndb");
         config.setString("state.backend.ndb.connectionstring", "localhost");
         config.setString("state.backend.ndb.dbname", "flinkndb");
 
@@ -109,7 +109,7 @@ public class StreamingJob {
 
         //env.setParallelism(1);
 
-        int example = 11;
+        int example = 4;
 
 
         switch (example) {
@@ -120,10 +120,11 @@ public class StreamingJob {
                 simpleStateFulStreamExample(env);
                 break;
             case 3:
-                WordCountExample(env);
+                WordCountExample(env); //need to start the external util
                 break;
             case 4:
-                ReduceExample(env);
+                WordCountExampleFromFile(env); //Does use valuestate automatically
+                break;
             case 5:
                 UdemyCourseAssignment(env);
             case 6:
@@ -139,6 +140,8 @@ public class StreamingJob {
             case 11:
                 KeyByFun(env);
                 break;
+            case 12:
+                ReduceExample(env);
                 //state examples starting with 1**
             case 101:
                 SumByStatelessOperatorsUsingValueState(env);
@@ -146,6 +149,8 @@ public class StreamingJob {
                 SumByStatelessOperatorsUsingListState(env);
             case 103:
                 SumByStatelessOperatorsUsingReducingState(env);
+            case 104:
+                //MapStateOperation(env);
             default:
                 break;
         }
@@ -162,6 +167,32 @@ public class StreamingJob {
 
         DataStream<Tuple2<String, Integer>> count =
                 data.filter(s -> s.startsWith("n"))
+                        .map(new MapFunction<String, Tuple2<String, Integer>>() {
+                            @Override
+                            public Tuple2<String, Integer> map(String s) throws Exception {
+                                return new Tuple2<>(s, 1);
+                            }
+                        })
+                        .keyBy(0) //similar to group in batch processing
+                        .sum(1);
+
+        count.print();
+
+        env.execute("Word count example execution");
+    }
+
+    private static void WordCountExampleFromFile(StreamExecutionEnvironment env) throws Exception {
+        File file = new File("src/main/resources/wc.txt");
+        String absolutePath = file.getAbsolutePath();
+
+        //env.readFile(FileInputFormat.  absolutePath, )
+
+        //open socket with nc -l 9999 before running the program
+        DataStream<String> data = env.readTextFile(absolutePath);
+        //env.socketTextStream("localhost", 9999);
+
+        DataStream<Tuple2<String, Integer>> count =
+                data
                         .map(new MapFunction<String, Tuple2<String, Integer>>() {
                             @Override
                             public Tuple2<String, Integer> map(String s) throws Exception {
@@ -984,7 +1015,7 @@ public class StreamingJob {
                         .keyBy(new KeySelector<Tuple2<CabRide, Integer>, Integer>() {
                             @Override
                             public Integer getKey(Tuple2<CabRide, Integer> cabRideIntegerTuple2) throws Exception {
-                                return cabRideIntegerTuple2.f0.PassengerCount%2;
+                                return cabRideIntegerTuple2.f0.PassengerCount % 2;
                             }
                         })
                         .sum(1);
