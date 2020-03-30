@@ -108,11 +108,12 @@ public class StreamingJob {
 
         //env.setParallelism(1);
 
-        int example = 12;
+        int example = 102;
         //Testing - Done
         //valueState  - 1,3, 4, 101-Clear, 11,12
+        //List State - 102
 
-       //Failed
+        //Failed
         //priorityQueue -- 2
 
         switch (example) {
