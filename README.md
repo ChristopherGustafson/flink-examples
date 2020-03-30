@@ -1,2 +1,2 @@
 # flink-examples
-Different examples to learn flink 
+Different examples to learn and test flink 
