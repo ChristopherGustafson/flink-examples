@@ -18,6 +18,7 @@
 
 package myflink;
 
+import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.functions.ReduceFunction;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
@@ -26,14 +27,11 @@ import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
-import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.tuple.Tuple4;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
-import org.apache.flink.streaming.api.datastream.DataStreamSink;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
@@ -41,7 +39,6 @@ import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction;
 import org.apache.flink.streaming.api.windowing.assigners.GlobalWindows;
 import org.apache.flink.streaming.api.windowing.assigners.ProcessingTimeSessionWindows;
 import org.apache.flink.streaming.api.windowing.assigners.SlidingProcessingTimeWindows;
-import org.apache.flink.streaming.api.windowing.assigners.TumblingProcessingTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.windowing.triggers.CountTrigger;
 import org.apache.flink.util.Collector;
@@ -108,10 +105,12 @@ public class StreamingJob {
 
         //env.setParallelism(1);
 
-        int example = 102;
+        int example = 104;
         //Testing - Done
         //valueState  - 1,3, 4, 101-Clear, 11,12
         //List State - 102
+        //Reducing State - 103
+        //aggregate State - 104
 
         //Failed
         //priorityQueue -- 2
@@ -159,6 +158,9 @@ public class StreamingJob {
                 SumByStatelessOperatorsUsingReducingState(env);
                 break;
             case 104:
+                SumByStatelessOperatorsUsingAggregateState(env);
+                break;
+            case 105:
                 //MapStateOperation(env);
             default:
                 break;
@@ -940,9 +942,9 @@ public class StreamingJob {
                             @Override
                             public void flatMap(Tuple2<Integer, Float> value, Collector<Tuple2<Integer, Float>> collector) throws Exception {
 
-                                Integer count = countValueState.value() != null ? countValueState.value() : 0;
+                                Integer count = 1 + (countValueState.value() != null ? countValueState.value() : 0);
 
-                                countValueState.update(count + 1);
+                                countValueState.update(count );
                                 sumReducingState.add(value.f1);
 
                                 if (count == 5) {
@@ -976,6 +978,82 @@ public class StreamingJob {
 
         env.execute("ListStateExample");
     }
+
+    private static void SumByStatelessOperatorsUsingAggregateState(StreamExecutionEnvironment env) throws Exception {
+
+        DataStream<String> data = ReadTextFile(env, "src/main/resources/wc1.txt");
+
+        DataStream<Tuple2<Integer, Float>> sumBy5Elements =
+                data
+                        .map(new MapFunction<String, Tuple2<Integer, Float>>() {
+                            @Override
+                            public Tuple2<Integer, Float> map(String s) throws Exception {
+                                String[] tokens = s.split(",");
+                                return new Tuple2<>(Integer.parseInt(tokens[0]), Float.parseFloat(tokens[1]));
+                            }
+                        })
+                        .keyBy(0)
+                        .flatMap(new RichFlatMapFunction<Tuple2<Integer, Float>, Tuple2<Integer, Float>>() {
+                            ValueState<Integer> countValueState;
+                            AggregatingState<Float, Float> sumAggregateState; //could have used reducing but for running the aggregate code
+
+                            @Override
+                            public void flatMap(Tuple2<Integer, Float> value, Collector<Tuple2<Integer, Float>> collector) throws Exception {
+
+                                Integer count = 1 + (countValueState.value() != null ? countValueState.value() : 0);
+
+                                countValueState.update(count );
+                                sumAggregateState.add(value.f1);
+
+                                if (count == 5) {
+                                    collector.collect(new Tuple2<>(value.f0, sumAggregateState.get()));
+                                    sumAggregateState.clear();
+                                    countValueState.clear();
+                                }
+                            }
+
+                            @Override
+                            public void open(Configuration parameters) throws Exception {
+
+                                countValueState = getRuntimeContext().getState(
+                                        new ValueStateDescriptor<Integer>("countValueState", BasicTypeInfo.INT_TYPE_INFO));
+
+                                sumAggregateState = getRuntimeContext().getAggregatingState(
+                                        new AggregatingStateDescriptor<Float, Float, Float>("sumAggregateState",
+                                                new AggregateFunction<Float, Float, Float>() {
+                                                    @Override
+                                                    public Float createAccumulator() {
+                                                        return 0.0F;
+                                                    }
+
+                                                    @Override
+                                                    public Float add(Float value, Float accumulator) {
+                                                        return value+accumulator;
+                                                    }
+
+                                                    @Override
+                                                    public Float getResult(Float accumulator) {
+                                                        return accumulator;
+                                                    }
+
+                                                    @Override
+                                                    public Float merge(Float accumulatorA, Float accumulatorB) {
+                                                        return add(accumulatorA, accumulatorB);
+                                                    }
+                                                },
+                                                BasicTypeInfo.FLOAT_TYPE_INFO)
+                                );
+
+
+                            }
+                        });
+
+
+        sumBy5Elements.print();
+
+        env.execute("ListStateExample");
+    }
+
 
     private static void CountTriggerWindowExample(StreamExecutionEnvironment env) throws Exception {
 
