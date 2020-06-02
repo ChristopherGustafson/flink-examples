@@ -29,6 +29,7 @@ import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple4;
+import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -84,6 +85,10 @@ public class StreamingJob {
          *
          */
 
+        int example = 105;
+        //final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        final ParameterTool params = ParameterTool.fromArgs(args);
+
         //env.setStateBackend(new Rocks)
         Configuration config = new Configuration();
         //config.setString("state.backend","filesystem");
@@ -95,25 +100,45 @@ public class StreamingJob {
         config.setString("state.savepoints.dir", "file:///tmp/flinksavepoints");
         config.setString("state.checkpoints.dir", "file:///tmp/flinkcheckpoints");
 
-        config.setString("web.timeout", "100000");
+        //state-Backend
+        if (params.has("sb")) {
+            config.setString("state.backend", params.get("sb"));
+        }
 
+        //example
+        if (params.has("e")) {
+            example = Integer.parseInt(params.get("e"));
+        }
+
+
+        final StreamExecutionEnvironment env = StreamExecutionEnvironment.createLocalEnvironmentWithWebUI(config);
+
+        //config.setString("web.timeout", "100000");
         // set up the streaming execution environment
         //final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         //config.setBoolean(ConfigConstants.LOCAL_START_WEBSERVER, true);
 
-        final StreamExecutionEnvironment env = StreamExecutionEnvironment.createLocalEnvironmentWithWebUI(config);
 
-        //env.setParallelism(1);
+        //env.enableCheckpointing(35000);
+        if (params.has("p")) {
+            env.setParallelism(Integer.parseInt(params.get("p")));
+        } else {
+            env.setParallelism(1);
+        }
 
-        int example = 104;
+        //env.getConfig().setGlobalJobParameters(config); not working
+
+
         //Testing - Done
         //valueState  - 1,3, 4, 101-Clear, 11,12
         //List State - 102
         //Reducing State - 103
         //aggregate State - 104
 
+
         //Failed
         //priorityQueue -- 2
+        //Map State - 105
 
         switch (example) {
             case 1:
@@ -161,20 +186,16 @@ public class StreamingJob {
                 SumByStatelessOperatorsUsingAggregateState(env);
                 break;
             case 105:
-                //MapStateOperation(env);
+                SumByStatelessOperatorsUsingMapState(env);
             default:
                 break;
         }
     }
 
     private static void WordCountExample(StreamExecutionEnvironment env) throws Exception {
-        File file = new File("src/main/resources/wc.txt");
-        String absolutePath = file.getAbsolutePath();
-
-        //env.readFile(FileInputFormat.  absolutePath, )
 
         //open socket with nc -l 9999 before running the program
-        DataStream<String> data = env.socketTextStream("localhost", 9999);
+        DataStream<String> data = env.socketTextStream("localhost", 9999).uid("SocketTextStream-id");
 
         DataStream<Tuple2<String, Integer>> count =
                 data.filter(s -> s.startsWith("n"))
@@ -183,9 +204,9 @@ public class StreamingJob {
                             public Tuple2<String, Integer> map(String s) throws Exception {
                                 return new Tuple2<>(s, 1);
                             }
-                        })
+                        }).uid("Filter-Map-id")
                         .keyBy(0) //similar to group in batch processing
-                        .sum(1);
+                        .sum(1).uid("KeyBy-sum-id");
 
         count.print();
 
@@ -807,6 +828,7 @@ public class StreamingJob {
      * when we can achieve the same using window and sum operation
      * This method will read a text file with key and value and emit a sum after 5 keys of same type and result will be
      * non-deterministic because of the arrival of keys isn't guaranteed
+     *
      * @param env
      * @throws Exception
      */
@@ -944,7 +966,7 @@ public class StreamingJob {
 
                                 Integer count = 1 + (countValueState.value() != null ? countValueState.value() : 0);
 
-                                countValueState.update(count );
+                                countValueState.update(count);
                                 sumReducingState.add(value.f1);
 
                                 if (count == 5) {
@@ -1002,7 +1024,7 @@ public class StreamingJob {
 
                                 Integer count = 1 + (countValueState.value() != null ? countValueState.value() : 0);
 
-                                countValueState.update(count );
+                                countValueState.update(count);
                                 sumAggregateState.add(value.f1);
 
                                 if (count == 5) {
@@ -1028,7 +1050,7 @@ public class StreamingJob {
 
                                                     @Override
                                                     public Float add(Float value, Float accumulator) {
-                                                        return value+accumulator;
+                                                        return value + accumulator;
                                                     }
 
                                                     @Override
@@ -1052,6 +1074,59 @@ public class StreamingJob {
         sumBy5Elements.print();
 
         env.execute("ListStateExample");
+    }
+
+    private static void SumByStatelessOperatorsUsingMapState(StreamExecutionEnvironment env) throws Exception {
+
+        DataStream<String> data = ReadTextFile(env, "src/main/resources/wc1.txt");
+
+        DataStream<Tuple2<Integer, Float>> sumByMapState =
+                data
+                        .map(new MapFunction<String, Tuple2<Integer, Float>>() {
+                            @Override
+                            public Tuple2<Integer, Float> map(String s) throws Exception {
+                                String[] tokens = s.split(",");
+                                return new Tuple2<>(Integer.parseInt(tokens[0]), Float.parseFloat(tokens[1]));
+                            }
+                        })
+                        .keyBy(0)
+                        .flatMap(new RichFlatMapFunction<Tuple2<Integer, Float>, Tuple2<Integer, Float>>() {
+                            ValueState<Integer> countValueState;
+                            MapState<Integer, Float> sumMapState;
+
+                            @Override
+                            public void flatMap(Tuple2<Integer, Float> value, Collector<Tuple2<Integer, Float>> collector) throws Exception {
+
+                                if (sumMapState.contains(value.f0)) {
+                                    Float sum = sumMapState.get(value.f0);
+                                    sum += value.f1;
+                                    collector.collect(new Tuple2<>(value.f0, sum));
+                                    sumMapState.put(value.f0, sum);
+
+                                } else {
+                                    sumMapState.put(value.f0, value.f1);
+                                }
+
+                            }
+
+                            @Override
+                            public void open(Configuration parameters) throws Exception {
+
+                                countValueState = getRuntimeContext().getState(
+                                        new ValueStateDescriptor<Integer>("countValueState", BasicTypeInfo.INT_TYPE_INFO));
+
+                                sumMapState = getRuntimeContext().getMapState(
+                                        new MapStateDescriptor<Integer, Float>("sumMapState",
+                                                BasicTypeInfo.INT_TYPE_INFO,
+                                                BasicTypeInfo.FLOAT_TYPE_INFO)
+                                );
+                            }
+                        });
+
+
+        sumByMapState.print();
+
+        env.execute("Map State Example");
     }
 
 
