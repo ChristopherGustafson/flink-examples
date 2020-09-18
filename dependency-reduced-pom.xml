@@ -135,7 +135,9 @@
       <releases>
         <enabled>false</enabled>
       </releases>
-      <snapshots />
+      <snapshots>
+        <updatePolicy>never</updatePolicy>
+      </snapshots>
       <id>apache.snapshots</id>
       <name>Apache Development Snapshot Repository</name>
       <url>https://repository.apache.org/content/repositories/snapshots/</url>
@@ -167,7 +169,7 @@
   <properties>
     <java.version>1.8</java.version>
     <scala.binary.version>2.11</scala.binary.version>
-    <flink.version>1.11-SNAPSHOT</flink.version>
+    <flink.version>1.12-SNAPSHOT</flink.version>
     <maven.compiler.source>${java.version}</maven.compiler.source>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.target>${java.version}</maven.compiler.target>

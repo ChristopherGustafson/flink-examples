@@ -18,10 +18,8 @@
 
 package myflink;
 
-import org.apache.flink.api.common.functions.AggregateFunction;
-import org.apache.flink.api.common.functions.MapFunction;
-import org.apache.flink.api.common.functions.ReduceFunction;
-import org.apache.flink.api.common.functions.RichFlatMapFunction;
+import akka.dispatch.Foreach;
+import org.apache.flink.api.common.functions.*;
 import org.apache.flink.api.common.state.*;
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeHint;
@@ -34,18 +32,21 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
+import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction;
+import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.streaming.api.windowing.assigners.GlobalWindows;
 import org.apache.flink.streaming.api.windowing.assigners.ProcessingTimeSessionWindows;
 import org.apache.flink.streaming.api.windowing.assigners.SlidingProcessingTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.windowing.triggers.CountTrigger;
 import org.apache.flink.util.Collector;
+import org.apache.flink.util.FlinkRuntimeException;
 
 import java.io.File;
-import java.util.Random;
+import java.util.*;
 
 
 /**
@@ -85,7 +86,7 @@ public class StreamingJob {
          *
          */
 
-        int example = 105;
+        int example;
         //final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         final ParameterTool params = ParameterTool.fromArgs(args);
 
@@ -96,6 +97,8 @@ public class StreamingJob {
         config.setString("state.backend", "ndb");
         config.setString("state.backend.ndb.connectionstring", "localhost");
         config.setString("state.backend.ndb.dbname", "flinkndb");
+        config.setString("state.backend.ndb.truncatetableonstart", "true");
+
 
         config.setString("state.savepoints.dir", "file:///tmp/flinksavepoints");
         config.setString("state.checkpoints.dir", "file:///tmp/flinkcheckpoints");
@@ -118,8 +121,10 @@ public class StreamingJob {
         //final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         //config.setBoolean(ConfigConstants.LOCAL_START_WEBSERVER, true);
 
-
-        //env.enableCheckpointing(35000);
+        example = 106;
+        env.enableCheckpointing(25000);
+        env.getCheckpointConfig().enableExternalizedCheckpoints(CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
+        env.getCheckpointConfig().setMinPauseBetweenCheckpoints(10000);
         if (params.has("p")) {
             env.setParallelism(Integer.parseInt(params.get("p")));
         } else {
@@ -128,17 +133,27 @@ public class StreamingJob {
 
         //env.getConfig().setGlobalJobParameters(config); not working
 
-
         //Testing - Done
         //valueState  - 1,3, 4, 101-Clear, 11,12
         //List State - 102
         //Reducing State - 103
         //aggregate State - 104
-
+        //Map State - 105
 
         //Failed
         //priorityQueue -- 2
-        //Map State - 105
+
+//        env.addSource(new SourceFunction<List<Person>>() {
+//            @Override
+//            public void run(SourceContext<List<Person>> sourceContext) throws Exception {
+//
+//            }
+//
+//            @Override
+//            public void cancel() {
+//
+//            }
+//        });
 
         switch (example) {
             case 1:
@@ -187,6 +202,8 @@ public class StreamingJob {
                 break;
             case 105:
                 SumByStatelessOperatorsUsingMapState(env);
+            case 106:
+                WordCountUsingMapStateUntilThree(env);
             default:
                 break;
         }
@@ -204,8 +221,7 @@ public class StreamingJob {
                             public Tuple2<String, Integer> map(String s) throws Exception {
                                 return new Tuple2<>(s, 1);
                             }
-                        }).uid("Filter-Map-id")
-                        .keyBy(0) //similar to group in batch processing
+                        }).uid("Filter-Map-id").keyBy(0) //similar to group in batch processing
                         .sum(1).uid("KeyBy-sum-id");
 
         count.print();
@@ -860,6 +876,7 @@ public class StreamingJob {
                                     collector.collect(sum + value.f1);
                                     sumValueState.clear();
                                     countValueState.clear();
+
                                 } else {
                                     //NDB should be consistent with default values by giving us 0 on first read
                                     //It is consistent as we are using defaultvalue method for null values
@@ -918,7 +935,10 @@ public class StreamingJob {
                                     collector.collect(new Tuple2<>(value.f0, sum + value.f1));
                                     valuesListState.clear();
                                     countValueState.clear();
-                                } else {
+                                }else if (count == 3){
+                                    valuesListState.addAll(Arrays.asList(1.0f,2.2f));
+                                }
+                                else {
                                     //NDB should be consistent with default values by giving us 0 on first read
                                     countValueState.update(count + 1);
                                     valuesListState.add(value.f1);
@@ -1106,7 +1126,6 @@ public class StreamingJob {
                                 } else {
                                     sumMapState.put(value.f0, value.f1);
                                 }
-
                             }
 
                             @Override
@@ -1155,6 +1174,93 @@ public class StreamingJob {
         sumBy5Elements.print();
 
         env.execute("ListStateExample");
+    }
+
+    private static void WordCountUsingMapStateUntilThree(StreamExecutionEnvironment env) throws Exception {
+
+        //open socket with nc -l 9999 before running the program
+        DataStream<String> data = env.socketTextStream("localhost", 9999);
+
+        DataStream<Tuple2<String, Integer>> count =
+                data.keyBy(new KeySelector<String, String>() {
+                    @Override
+                    public String getKey(String s) throws Exception {
+                        return s;
+                    }
+                })
+
+                        .flatMap(new RichFlatMapFunction<String, Tuple2<String, Integer>>() {
+
+                            ValueState<Integer> countValueState;
+                            ValueState<Integer> countValueState1;
+                            ValueState<Integer> countValueState2;
+                            MapState<String, Integer> sumMapState;
+                            ListState<Integer> lotOfValuesState;
+
+                            @Override
+                            public void flatMap(String s, Collector<Tuple2<String, Integer>> collector) throws Exception {
+
+                                Integer sum = 1;
+                                if (sumMapState.contains(s)) {
+                                    sum = sumMapState.get(s);
+                                    sum += 1;
+                                    countValueState.update(sum);
+                                    countValueState2.update(sum);
+                                    countValueState1.update(sum);
+                                    sumMapState.put(s,sum);
+
+                                } else {
+                                    sumMapState.put(s, 1);
+                                    countValueState.update(1);
+                                    countValueState2.update(1);
+                                    countValueState1.update(1);
+                                }
+
+                                if (s.equals("crash") && countValueState.value() >= 2) {
+                                    throw new FlinkRuntimeException("Ahah");
+                                }
+                                else if(s.startsWith("insert")){
+                                    List<Integer> list = new ArrayList<>();
+
+                                    for(int i=0; i < s.length();i++)
+                                    {
+                                        list.add(i);
+                                    }
+
+                                    lotOfValuesState.addAll(list);
+                                }
+                                collector.collect(new Tuple2<>(s,sum));
+                            }
+
+                            @Override
+                            public void open(Configuration parameters) throws Exception {
+
+                                countValueState = getRuntimeContext().getState(
+                                        new ValueStateDescriptor<>("countValueState", BasicTypeInfo.INT_TYPE_INFO));
+
+                                countValueState1 = getRuntimeContext().getState(
+                                        new ValueStateDescriptor<>("countValueState1", BasicTypeInfo.INT_TYPE_INFO));
+                                countValueState2 = getRuntimeContext().getState(
+                                        new ValueStateDescriptor<>("countValueState2", BasicTypeInfo.INT_TYPE_INFO));
+
+                                sumMapState = getRuntimeContext().getMapState(
+                                        new MapStateDescriptor<>("sumMapState",
+                                                BasicTypeInfo.STRING_TYPE_INFO,
+                                                BasicTypeInfo.INT_TYPE_INFO));
+
+                                lotOfValuesState = getRuntimeContext().getListState(
+                                        new ListStateDescriptor<Integer>("lotOfValuesState",
+                                                BasicTypeInfo.INT_TYPE_INFO));
+
+                            }
+                        });
+
+        //.sum(1).uid("KeyBy-sum-id");
+
+        count.print();
+
+        env.execute("Word count example execution");
+
     }
     //endregion
 
