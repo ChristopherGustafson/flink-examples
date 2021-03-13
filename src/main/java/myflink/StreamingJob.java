@@ -22,6 +22,7 @@ import akka.dispatch.Foreach;
 import org.apache.flink.api.common.functions.*;
 import org.apache.flink.api.common.state.*;
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
+import org.apache.flink.api.common.typeinfo.PrimitiveArrayTypeInfo;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
@@ -47,6 +48,7 @@ import org.apache.flink.util.FlinkRuntimeException;
 
 import java.io.File;
 import java.util.*;
+import java.util.stream.Stream;
 
 
 /**
@@ -92,13 +94,12 @@ public class StreamingJob {
 
         //env.setStateBackend(new Rocks)
         Configuration config = new Configuration();
-        //config.setString("state.backend","filesystem");
+        config.setString("state.backend", "filesystem");
         //config.setString("state.backend", "rocksdb");
-        config.setString("state.backend", "ndb");
+        //config.setString("state.backend", "ndb");
         config.setString("state.backend.ndb.connectionstring", "localhost");
         config.setString("state.backend.ndb.dbname", "flinkndb");
-        config.setString("state.backend.ndb.truncatetableonstart", "true");
-
+        config.setString("state.backend.ndb.truncatetableonstart", "false");
 
         config.setString("state.savepoints.dir", "file:///tmp/flinksavepoints");
         config.setString("state.checkpoints.dir", "file:///tmp/flinkcheckpoints");
@@ -121,8 +122,8 @@ public class StreamingJob {
         //final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         //config.setBoolean(ConfigConstants.LOCAL_START_WEBSERVER, true);
 
-        example = 106;
-        env.enableCheckpointing(25000);
+        example = 402;//106;
+        env.enableCheckpointing(10000);
         env.getCheckpointConfig().enableExternalizedCheckpoints(CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
         env.getCheckpointConfig().setMinPauseBetweenCheckpoints(10000);
         if (params.has("p")) {
@@ -142,6 +143,10 @@ public class StreamingJob {
 
         //Failed
         //priorityQueue -- 2
+
+        //Recovery
+        //401
+
 
 //        env.addSource(new SourceFunction<List<Person>>() {
 //            @Override
@@ -187,7 +192,8 @@ public class StreamingJob {
                 ReduceExample(env);
                 break;
 
-            //state examples starting with 1**
+
+            //region state examples starting with 1**
             case 101:
                 SumByStatelessOperatorsUsingValueState(env);
                 break;
@@ -204,6 +210,17 @@ public class StreamingJob {
                 SumByStatelessOperatorsUsingMapState(env);
             case 106:
                 WordCountUsingMapStateUntilThree(env);
+                //endregion
+
+                //region Recovery examples starting with 4**
+            case 401:
+                WordCountUsingValueStateCrash(env);
+                break;
+            case 402:
+                WordCountUnigramUsingValueStateCrash(env);
+                //endregion
+            case 403:
+                WordCountUsingValueStateFromLocalFile(env);
             default:
                 break;
         }
@@ -935,10 +952,9 @@ public class StreamingJob {
                                     collector.collect(new Tuple2<>(value.f0, sum + value.f1));
                                     valuesListState.clear();
                                     countValueState.clear();
-                                }else if (count == 3){
-                                    valuesListState.addAll(Arrays.asList(1.0f,2.2f));
-                                }
-                                else {
+                                } else if (count == 3) {
+                                    valuesListState.addAll(Arrays.asList(1.0f, 2.2f));
+                                } else {
                                     //NDB should be consistent with default values by giving us 0 on first read
                                     countValueState.update(count + 1);
                                     valuesListState.add(value.f1);
@@ -1207,7 +1223,7 @@ public class StreamingJob {
                                     countValueState.update(sum);
                                     countValueState2.update(sum);
                                     countValueState1.update(sum);
-                                    sumMapState.put(s,sum);
+                                    sumMapState.put(s, sum);
 
                                 } else {
                                     sumMapState.put(s, 1);
@@ -1216,20 +1232,18 @@ public class StreamingJob {
                                     countValueState1.update(1);
                                 }
 
-                                if (s.equals("crash") && countValueState.value() >= 2) {
+                                if (s.equals("crash") && countValueState.value() % 2 == 0) {
                                     throw new FlinkRuntimeException("Ahah");
-                                }
-                                else if(s.startsWith("insert")){
+                                } else if (s.startsWith("insert")) {
                                     List<Integer> list = new ArrayList<>();
 
-                                    for(int i=0; i < s.length();i++)
-                                    {
+                                    for (int i = 0; i < s.length(); i++) {
                                         list.add(i);
                                     }
 
                                     lotOfValuesState.addAll(list);
                                 }
-                                collector.collect(new Tuple2<>(s,sum));
+                                collector.collect(new Tuple2<>(s, sum));
                             }
 
                             @Override
@@ -1262,6 +1276,199 @@ public class StreamingJob {
         env.execute("Word count example execution");
 
     }
+    //endregion
+
+    //region failure or recovery test
+    //401
+    private static void WordCountUsingValueStateCrash(StreamExecutionEnvironment env) throws Exception {
+
+        //open socket with nc -l 9999 before running the program
+        DataStream<String> data = env.socketTextStream("localhost", 9999);
+
+        DataStream<Tuple2<String, Integer>> count =
+                data
+                        //split the line
+                        .flatMap(new FlatMapFunction<String, Tuple2<String, Integer>>() {
+                            @Override
+                            public void flatMap(String line, Collector<Tuple2<String, Integer>> collector) throws Exception {
+                                for (String word : line.split(" ")) {
+                                    //if (word.equals("INFO") || word.equals("DEBUG")) {
+                                    collector.collect(new Tuple2<>(word.toLowerCase(), 1));
+                                    //}
+                                }
+                            }
+                        })
+                        //make a keyed stream based on the keyword
+                        .keyBy(0)
+
+                        //use manual state to count the words
+                        .flatMap(new RichFlatMapFunction<Tuple2<String, Integer>, Tuple2<String, Integer>>() {
+
+                            ValueState<Integer> countValueState;
+
+                            @Override
+                            public void flatMap(Tuple2<String, Integer> s, Collector<Tuple2<String, Integer>> collector) throws Exception {
+
+                                Integer count = countValueState.value();
+                                if (count == null) count = 0;
+
+                                if (s.f0.equals("crash") && count >= 2) {
+                                    throw new FlinkRuntimeException("Ahah");
+                                } else {
+                                    countValueState.update(++count);
+                                }
+
+                                collector.collect(new Tuple2<>(s.f0, count));
+                            }
+
+                            @Override
+                            public void open(Configuration parameters) throws Exception {
+
+                                countValueState = getRuntimeContext().getState(
+                                        new ValueStateDescriptor<>("countValueState", BasicTypeInfo.INT_TYPE_INFO));
+                                //countValueState.update(0); //initialize to 0
+                            }
+                        });
+
+        //.sum(1).uid("KeyBy-sum-id");
+
+        count.print();
+
+        env.execute("Word count example execution");
+
+    }
+
+    //402
+    private static void WordCountUnigramUsingValueStateCrash(StreamExecutionEnvironment env) throws Exception {
+
+        //open socket with nc -l 9999 before running the program
+        DataStream<String> data = env.socketTextStream("localhost", 9999);
+
+        DataStream<Tuple2<String, Integer>> count =
+                data
+                        //split the line
+                        .flatMap(new FlatMapFunction<String, Tuple2<String, Integer>>() {
+                            @Override
+                            public void flatMap(String line, Collector<Tuple2<String, Integer>> collector) throws Exception {
+                                for (String word : line.split(" ")) {
+                                    //if (word.startsWith("a") || word.startsWith("b")|| word.startsWith("c")){
+                                    collector.collect(new Tuple2<>(word.toLowerCase(), 1));
+                                    //}
+                                    if (word.equals("flinkNDB")) {
+                                        throw new FlinkRuntimeException("Ahah");
+                                    }
+                                }
+                            }
+                        })
+                        //make a keyed stream based on the keyword
+                        .keyBy(0)
+
+                        //use manual state to count the words
+                        .flatMap(new RichFlatMapFunction<Tuple2<String, Integer>, Tuple2<String, Integer>>() {
+
+                            ValueState<MyInteger> countValueState;
+                            MapState<String, String[]> mapSate;
+
+                            @Override
+                            public void flatMap(Tuple2<String, Integer> s, Collector<Tuple2<String, Integer>> collector) throws Exception {
+
+                                MyInteger count = countValueState.value();//s.f0);
+                                if (count == null ){
+                                    count = new MyInteger();
+                                }
+                                //                                if (count % 3000 == 0) {
+//                                    countValueState.update(++count);
+//                                    throw new FlinkRuntimeException("Ahah");
+//                                } else {
+//                                    countValueState.update(++count);
+//                                }
+
+//                                mapSate.put(s.f0, count);
+
+                                countValueState.update(count);
+                                collector.collect(new Tuple2<>(s.f0, 1));
+                            }
+
+                            @Override
+                            public void open(Configuration parameters) throws Exception {
+
+                                countValueState = getRuntimeContext().getState(
+                                        new ValueStateDescriptor<>("countValueState", MyInteger.class));
+//                                mapSate = getRuntimeContext().getMapState(
+//                                        new MapStateDescriptor<>("mapState", BasicTypeInfo.STRING_TYPE_INFO,
+//                                                PrimitiveArrayTypeInfo.CHAR_PRIMITIVE_ARRAY_TYPE_INFO)
+//                                );
+                                //countValueState.update(0); //initialize to 0
+                            }
+                        });
+
+        //.sum(1).uid("KeyBy-sum-id");
+
+        count.print();
+
+        env.execute("Word count example execution");
+
+    }
+
+
+    //403
+    private static void WordCountUsingValueStateFromLocalFile(StreamExecutionEnvironment env) throws Exception {
+
+//        File file = new File("/home/haseeb/projects/data/cleanedmrdata.csv");
+//        String absolutePath = file.getAbsolutePath();
+//        DataStream<String> data = env.readTextFile(absolutePath);
+
+        DataStream<String> data = env.socketTextStream("localhost", 9999).uid("SocketTextStream-id");
+
+
+        DataStream<Tuple2<String, Integer>> wordCount =
+                data
+                        .flatMap(new FlatMapFunction<String, Tuple2<String, Integer>>() {
+                            @Override
+                            public void flatMap(String s, Collector<Tuple2<String, Integer>> collector) throws Exception {
+                                Stream.of(s.split(" ")).forEach(w -> collector.collect(new Tuple2<>(w, 1)));
+                            }
+                        })
+                        .keyBy(0)
+                        .sum(1)
+                        .filter((FilterFunction<Tuple2<String, Integer>>) pair -> {
+                            if (pair.f0.equals("of") && pair.f1 == 500)
+                                throw new FlinkRuntimeException("Ahah crash");
+                            return true;
+                        });
+
+        wordCount.countWindowAll(3).max(1).print();
+
+
+//        //1.) Popular destination.  | Where more number of people reach.
+//        SingleOutputStreamOperator<Tuple2<CabRide, Integer>> result1 =
+//                mapped.filter(ride -> ride.DropLocation != null)
+//                        .map(new MapFunction<CabRide, Tuple2<CabRide, Integer>>() {
+//                            @Override
+//                            public Tuple2<CabRide, Integer> map(CabRide cabRide) throws Exception {
+//                                return new Tuple2<CabRide, Integer>(cabRide, 1);
+//                            }
+//                        })
+//
+//                        .keyBy(new KeySelector<Tuple2<CabRide, Integer>, String>() {
+//                            @Override
+//                            public String getKey(Tuple2<CabRide, Integer> cabRideIntegerTuple2) throws Exception {
+//                                return cabRideIntegerTuple2.f0.DropLocation;
+//                            }
+//                        })
+//                        .reduce(new ReduceFunction<Tuple2<CabRide, Integer>>() {
+//                            @Override
+//                            public Tuple2<CabRide, Integer> reduce(Tuple2<CabRide, Integer> current, Tuple2<CabRide, Integer> pre) throws Exception {
+//                                return new Tuple2<CabRide, Integer>(current.f0, current.f1 + pre.f1);
+//                            }
+//                        })
+//                        .keyBy(0)
+//                        .max(1);
+
+
+        env.execute("word count from file example");
+    }
+
     //endregion
 
     private static void KeyByFun(StreamExecutionEnvironment env) throws Exception {
@@ -1347,6 +1554,21 @@ public class StreamingJob {
         }
     }
 
+    static class MyInteger{
+
+        private int _value;
+
+        public MyInteger(){
+            _value = -1;
+        }
+
+        public int getValue(){
+            return _value;
+        }
+        public void setValue(int value){
+            _value=value;
+        }
+    }
 
 }
 
