@@ -30,7 +30,7 @@ under the License.
 
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-		<flink.version>1.13-SNAPSHOT</flink.version>
+		<flink.version>1.14-SNAPSHOT</flink.version>
 		<java.version>1.8</java.version>
 		<scala.binary.version>2.11</scala.binary.version>
 		<maven.compiler.source>${java.version}</maven.compiler.source>
@@ -51,12 +51,14 @@ under the License.
 			</snapshots>
 		</repository>
 		<repository>
-			<id>Hops release</id>
-			<name>Hops Release Repository</name>
-			<url>https://bbc1.sics.se/archiva/repository/Hops/</url>
+			<id>Hops</id>
+			<name>Hops Repo</name>
+			<url>https://archiva.hops.works/repository/Hops/</url>
+			<releases>
+				<enabled>true</enabled>
+			</releases>
 			<snapshots>
-				<enabled>false</enabled>
-				<updatePolicy>never</updatePolicy>
+				<enabled>true</enabled>
 			</snapshots>
 		</repository>
 	</repositories>
@@ -114,8 +116,8 @@ under the License.
 
 		<dependency>
 			<groupId>com.mysql.ndb</groupId>
-			<artifactId>clusterj-hops-fix</artifactId>
-			<version>7.6.9</version>
+			<artifactId>clusterj-rondb</artifactId>
+			<version>21.04.0</version>
 		</dependency>
 
 		<dependency>

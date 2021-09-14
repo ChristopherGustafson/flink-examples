@@ -143,13 +143,11 @@
       <url>https://repository.apache.org/content/repositories/snapshots/</url>
     </repository>
     <repository>
-      <snapshots>
-        <enabled>false</enabled>
-        <updatePolicy>never</updatePolicy>
-      </snapshots>
-      <id>Hops release</id>
-      <name>Hops Release Repository</name>
-      <url>https://bbc1.sics.se/archiva/repository/Hops/</url>
+      <releases />
+      <snapshots />
+      <id>Hops</id>
+      <name>Hops Repo</name>
+      <url>https://archiva.hops.works/repository/Hops/</url>
     </repository>
   </repositories>
   <dependencies>
@@ -169,7 +167,7 @@
   <properties>
     <java.version>1.8</java.version>
     <scala.binary.version>2.11</scala.binary.version>
-    <flink.version>1.12-SNAPSHOT</flink.version>
+    <flink.version>1.14-SNAPSHOT</flink.version>
     <maven.compiler.source>${java.version}</maven.compiler.source>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.target>${java.version}</maven.compiler.target>

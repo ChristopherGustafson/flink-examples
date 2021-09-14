@@ -18,7 +18,6 @@
 
 package myflink;
 
-import akka.dispatch.Foreach;
 import org.apache.flink.api.common.functions.*;
 import org.apache.flink.api.common.state.*;
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
@@ -96,7 +95,7 @@ public class StreamingJob {
         Configuration config = new Configuration();
         config.setString("state.backend", "filesystem");
         //config.setString("state.backend", "rocksdb");
-        //config.setString("state.backend", "ndb");
+        config.setString("state.backend", "ndb");
         config.setString("state.backend.ndb.connectionstring", "localhost");
         config.setString("state.backend.ndb.dbname", "flinkndb");
         config.setString("state.backend.ndb.truncatetableonstart", "false");
@@ -122,14 +121,14 @@ public class StreamingJob {
         //final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         //config.setBoolean(ConfigConstants.LOCAL_START_WEBSERVER, true);
 
-        example = 402;//106;
-        env.enableCheckpointing(10000);
+        example = 401;//106;
+        //env.enableCheckpointing(10000);
         env.getCheckpointConfig().enableExternalizedCheckpoints(CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
         env.getCheckpointConfig().setMinPauseBetweenCheckpoints(10000);
         if (params.has("p")) {
             env.setParallelism(Integer.parseInt(params.get("p")));
         } else {
-            env.setParallelism(1);
+            env.setParallelism(2);
         }
 
         //env.getConfig().setGlobalJobParameters(config); not working
@@ -1305,6 +1304,7 @@ public class StreamingJob {
                         .flatMap(new RichFlatMapFunction<Tuple2<String, Integer>, Tuple2<String, Integer>>() {
 
                             ValueState<Integer> countValueState;
+                            ValueState<Integer> sumValueState;
 
                             @Override
                             public void flatMap(Tuple2<String, Integer> s, Collector<Tuple2<String, Integer>> collector) throws Exception {
@@ -1317,16 +1317,18 @@ public class StreamingJob {
                                 } else {
                                     countValueState.update(++count);
                                 }
-
+                                sumValueState.update(0);
                                 collector.collect(new Tuple2<>(s.f0, count));
                             }
 
                             @Override
                             public void open(Configuration parameters) throws Exception {
 
+                                sumValueState = getRuntimeContext().getState(
+                                        new ValueStateDescriptor<>("sumValueState", BasicTypeInfo.INT_TYPE_INFO));
                                 countValueState = getRuntimeContext().getState(
                                         new ValueStateDescriptor<>("countValueState", BasicTypeInfo.INT_TYPE_INFO));
-                                //countValueState.update(0); //initialize to 0
+
                             }
                         });
 
@@ -1386,7 +1388,7 @@ public class StreamingJob {
 //                                mapSate.put(s.f0, count);
 
                                 countValueState.update(count);
-                                collector.collect(new Tuple2<>(s.f0, 1));
+                                collector.collect(new Tuple2<>(s.f0, count._value));
                             }
 
                             @Override
