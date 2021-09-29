@@ -121,14 +121,14 @@ public class StreamingJob {
         //final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         //config.setBoolean(ConfigConstants.LOCAL_START_WEBSERVER, true);
 
-        example = 401;//106;
-        //env.enableCheckpointing(10000);
+        example = 404;//106;
+        env.enableCheckpointing(10000);
         env.getCheckpointConfig().enableExternalizedCheckpoints(CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
         env.getCheckpointConfig().setMinPauseBetweenCheckpoints(10000);
         if (params.has("p")) {
             env.setParallelism(Integer.parseInt(params.get("p")));
         } else {
-            env.setParallelism(2);
+            env.setParallelism(1);
         }
 
         //env.getConfig().setGlobalJobParameters(config); not working
@@ -209,7 +209,7 @@ public class StreamingJob {
                 SumByStatelessOperatorsUsingMapState(env);
             case 106:
                 WordCountUsingMapStateUntilThree(env);
-                //endregion
+            //endregion
 
                 //region Recovery examples starting with 4**
             case 401:
@@ -220,6 +220,8 @@ public class StreamingJob {
                 //endregion
             case 403:
                 WordCountUsingValueStateFromLocalFile(env);
+            case 404:
+                WordCountUnigramUsingListStateCrash(env);
             default:
                 break;
         }
@@ -1312,7 +1314,7 @@ public class StreamingJob {
                                 Integer count = countValueState.value();
                                 if (count == null) count = 0;
 
-                                if (s.f0.equals("crash") && count >= 2) {
+                                if (s.f0.equals("crash") && count % 3 == 0) {
                                     throw new FlinkRuntimeException("Ahah");
                                 } else {
                                     countValueState.update(++count);
@@ -1470,6 +1472,74 @@ public class StreamingJob {
 
         env.execute("word count from file example");
     }
+
+    //404
+    private static void WordCountUnigramUsingListStateCrash(StreamExecutionEnvironment env) throws Exception {
+
+        //Take a list and use first word as the key
+        //test a b c
+        //test1 a b c
+        //test x y z
+
+        //open socket with nc -l 9999 before running the program
+        DataStream<String> data = env.socketTextStream("localhost", 9999);
+
+        DataStream<Tuple2<String, Long>> count =
+                data
+                        //split the line
+                        .flatMap(new FlatMapFunction<String, Tuple2<String, List<String>>> () {
+
+                            @Override
+                            public void flatMap(String line, Collector<Tuple2<String, List<String>>> collector) throws Exception {
+
+                            String[] words = line.split(" ");
+                            String firstWord = words[0];
+                            if (firstWord.equals("flinkNDB")) {
+                                throw new FlinkRuntimeException("Ahah");
+                            }
+
+                            collector.collect(new Tuple2<String, List<String>>(firstWord, Arrays.asList(words)));
+                            }
+                        })
+                        //make a keyed stream based on the first keyword
+                        .keyBy(0)
+
+                        //use manual state to count the words
+                        .flatMap(new RichFlatMapFunction<Tuple2<String, List<String>>, Tuple2<String, Long>>() {
+
+                            ValueState<Long> countValueState;
+                            ListState<String> coutnListSate;
+
+                            @Override
+                            public void open(Configuration parameters) throws Exception {
+
+                                countValueState = getRuntimeContext().getState(
+                                        new ValueStateDescriptor<>("countValueState", BasicTypeInfo.LONG_TYPE_INFO));
+                                coutnListSate = getRuntimeContext().getListState(
+                                        new ListStateDescriptor<String>("countListState", BasicTypeInfo.STRING_TYPE_INFO));
+                            }
+
+                            @Override
+                            public void flatMap(Tuple2<String, List<String>> stringListTuple2,
+                                                Collector<Tuple2<String, Long>> collector) throws Exception {
+
+                                countValueState.update(stringListTuple2.f1.stream().count());
+                                coutnListSate.update(stringListTuple2.f1);
+
+                                collector.collect(new Tuple2<>(stringListTuple2.f0,
+                                        stringListTuple2.f1.stream().count()));
+
+                            }
+                        });
+
+        //.sum(1).uid("KeyBy-sum-id");
+
+        count.print();
+
+        env.execute("List count example execution");
+
+    }
+
 
     //endregion
 
