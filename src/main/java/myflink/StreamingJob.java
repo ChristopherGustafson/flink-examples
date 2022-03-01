@@ -33,6 +33,7 @@ import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
+import org.apache.flink.streaming.api.environment.ExecutionCheckpointingOptions;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction;
@@ -66,39 +67,19 @@ public class StreamingJob {
 
     public static void main(String[] args) throws Exception {
 
-
-        /*
-         * Here, you can start creating your execution plan for Flink.
-         *
-         * Start with getting some data from the environment, like
-         * 	env.readTextFile(textPath);
-         *
-         * then, transform the resulting DataStream<String> using operations
-         * like
-         * 	.filter()
-         * 	.flatMap()
-         * 	.join()
-         * 	.coGroup()
-         *
-         * and many more.
-         * Have a look at the programming guide for the Java API:
-         *
-         * http://flink.apache.org/docs/latest/apis/streaming/index.html
-         *
-         */
-
         int example;
         //final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         final ParameterTool params = ParameterTool.fromArgs(args);
 
         //env.setStateBackend(new Rocks)
         Configuration config = new Configuration();
-        config.setString("state.backend", "filesystem");
-        //config.setString("state.backend", "rocksdb");
+//        config.setString("state.backend", "filesystem");
+//        config.setString("state.backend", "rocksdb");
         config.setString("state.backend", "ndb");
-        config.setString("state.backend.ndb.connectionstring", "localhost");
+        config.setString("state.backend.ndb.connectionstring", "127.0.0.1");
         config.setString("state.backend.ndb.dbname", "flinkndb");
         config.setString("state.backend.ndb.truncatetableonstart", "false");
+        config.setString("execution.checkpointing.checkpoints-after-tasks-finish.enabled", "true");
 
         config.setString("state.savepoints.dir", "file:///tmp/flinksavepoints");
         config.setString("state.checkpoints.dir", "file:///tmp/flinkcheckpoints");
@@ -113,25 +94,21 @@ public class StreamingJob {
             example = Integer.parseInt(params.get("e"));
         }
 
+        final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(config);
 
-        final StreamExecutionEnvironment env = StreamExecutionEnvironment.createLocalEnvironmentWithWebUI(config);
+        example = 1;//106;
 
-        //config.setString("web.timeout", "100000");
-        // set up the streaming execution environment
-        //final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        //config.setBoolean(ConfigConstants.LOCAL_START_WEBSERVER, true);
+        /* CHECKPOINTING */
+//        env.enableCheckpointing(100);
+//        env.getCheckpointConfig().enableExternalizedCheckpoints(
+//                CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
 
-        example = 404;//106;
-        env.enableCheckpointing(10000);
-        env.getCheckpointConfig().enableExternalizedCheckpoints(CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
-        env.getCheckpointConfig().setMinPauseBetweenCheckpoints(10000);
+
         if (params.has("p")) {
             env.setParallelism(Integer.parseInt(params.get("p")));
         } else {
             env.setParallelism(1);
         }
-
-        //env.getConfig().setGlobalJobParameters(config); not working
 
         //Testing - Done
         //valueState  - 1,3, 4, 101-Clear, 11,12
@@ -146,18 +123,6 @@ public class StreamingJob {
         //Recovery
         //401
 
-
-//        env.addSource(new SourceFunction<List<Person>>() {
-//            @Override
-//            public void run(SourceContext<List<Person>> sourceContext) throws Exception {
-//
-//            }
-//
-//            @Override
-//            public void cancel() {
-//
-//            }
-//        });
 
         switch (example) {
             case 1:
@@ -1588,7 +1553,7 @@ public class StreamingJob {
 //				.map((MapFunction<CabRide, Tuple3<CabRide,Integer, Integer>>) ride-> new Tuple3<>(ride,1, ride.PassengerCount))
 //				.keyBy("DriverName")
 //				.sum(2)
-//				.keyBy("DriverName")
+//				.keyBy("drivername")
 //				.fold(new Tuple2<String, Double>("", 0), new FoldFunction<Tuple3<CabRide, Integer, Integer>, Tuple2<String, Double>>() {
 //					@Override
 //					public Tuple2<String, Double> fold(Tuple2<String, Double> defalutVal, Tuple3<CabRide, Integer, Integer> current) throws Exception {
