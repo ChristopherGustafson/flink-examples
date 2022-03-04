@@ -105,7 +105,8 @@ public class MapStateJob {
                                 ;
                                 Long size = countMapState.get(input);
                                 if(size != null){
-                                    countMapState.put(input, size+1L);
+                                    size++;
+                                    countMapState.put(input, size);
                                 }
                                 else{
                                     size = 1L;
