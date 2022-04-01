@@ -6,6 +6,8 @@ import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.api.common.functions.RichMapFunction;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ListStateDescriptor;
+import org.apache.flink.api.common.state.MapState;
+import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.BasicTypeInfo;
@@ -15,6 +17,7 @@ import org.apache.flink.api.java.DataSet;
 import org.apache.flink.api.java.ExecutionEnvironment;
 import org.apache.flink.api.java.aggregation.Aggregations;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.api.java.tuple.Tuple3;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -79,9 +82,80 @@ public class RecoveryJob {
             case 3:
                 countWindowAverage(env);
                 break;
+            case 4:
+                wordCountAllStateTypesCrash(env);
             default:
                 break;
         }
+    }
+
+    static void wordCountAllStateTypesCrash(StreamExecutionEnvironment env) throws Exception {
+        //open socket with nc -l -k 9999 before running the program
+        DataStream<String> data = env.socketTextStream("localhost", 9999);
+
+        DataStream<Tuple2<String, Tuple3<Long, Long, Long>>> count =
+                data.flatMap(new FlatMapFunction<String, String>() {
+                            @Override
+                            public void flatMap(String line, Collector<String> collector) throws Exception {
+
+                                String[] words = line.split(" ");
+                                String firstWord = words[0];
+                                if (firstWord.equals("flinkNDB")) {
+                                    throw new FlinkRuntimeException("KABOOM!");
+                                }
+                                collector.collect(firstWord);
+                            }
+                        })
+                        //make a keyed stream based on the first keyword
+                        .keyBy(word -> word)
+
+                        //use manual state to count the words
+                        .flatMap(new RichFlatMapFunction<String, Tuple2<String, Tuple3<Long, Long, Long>>>() {
+                            ValueState<Long> countValueState;
+                            ListState<String> countListState;
+                            MapState<String, Long> countMapState;
+
+                            @Override
+                            public void open(Configuration parameters) throws Exception {
+                                countValueState = getRuntimeContext().getState(
+                                        new ValueStateDescriptor<Long>("countValueState", BasicTypeInfo.LONG_TYPE_INFO));
+                                countListState = getRuntimeContext().getListState(
+                                        new ListStateDescriptor<String>("countListState", BasicTypeInfo.STRING_TYPE_INFO));
+                                countMapState = getRuntimeContext().getMapState(
+                                        new MapStateDescriptor<String, Long>("countMapState", BasicTypeInfo.STRING_TYPE_INFO, BasicTypeInfo.LONG_TYPE_INFO));
+                            }
+
+                            @Override
+                            public void flatMap(String input,
+                                                Collector<Tuple2<String, Tuple3<Long, Long, Long>>> collector) throws Exception {
+                                ;
+
+                                long sizeV = 1L;
+                                if(countValueState.value() != null){
+                                    sizeV = countValueState.value()+1L;
+                                }
+                                countValueState.update(sizeV);
+
+                                countListState.add(input);
+                                long sizeL = 0L;
+                                for(String t : countListState.get()){
+                                    sizeL++;
+                                }
+
+                                Long sizeM = countMapState.get(input);
+                                if(sizeM != null){
+                                    sizeM++;
+                                    countMapState.put(input, sizeM);
+                                }
+                                else{
+                                    sizeM = 1L;
+                                    countMapState.put(input, sizeM);
+                                }
+                                collector.collect(new Tuple2<>(input, new Tuple3<>(sizeV, sizeL, sizeM)));
+                            }
+                        });
+        count.print();
+        env.execute("All State types WordCount with crash");
     }
 
 

@@ -48,7 +48,7 @@ public class ListStateJob {
 
         env.setParallelism(2);
 
-        int example = 3;
+        int example = 4;
         switch (example) {
             case 1:
                 basicListOperation(env);
@@ -57,6 +57,9 @@ public class ListStateJob {
                 basicListOperationCrash(env);
             case 3:
                 wordCountListOperationCrash(env);
+                break;
+            case 4:
+                wordCountValueOperationClear(env);
                 break;
             default:
                 break;
@@ -173,6 +176,59 @@ public class ListStateJob {
         count.print();
         env.execute("List count example execution");
 
+    }
+
+    static void wordCountValueOperationClear(StreamExecutionEnvironment env) throws Exception {
+        //open socket with nc -l -k 9999 before running the program
+        DataStream<String> data = env.socketTextStream("localhost", 9999);
+
+        DataStream<Tuple2<String, Long>> count =
+                data.flatMap(new FlatMapFunction<String, Tuple2<String, String>>() {
+
+                            @Override
+                            public void flatMap(String line, Collector<Tuple2<String, String>> collector) throws Exception {
+
+                                String[] words = line.split(" ");
+                                String firstWord = words[0];
+                                String secondWord = words.length > 1 ? words[1] : "";
+                                collector.collect(new Tuple2(firstWord, secondWord));
+                            }
+                        })
+                        //make a keyed stream based on the first keyword
+                        .keyBy(tuple -> tuple.f0)
+
+                        //use manual state to count the words
+                        .flatMap(new RichFlatMapFunction<Tuple2<String, String>, Tuple2<String, Long>>() {
+
+                            ListState<String> countListState;
+
+                            @Override
+                            public void open(Configuration parameters) throws Exception {
+                                countListState = getRuntimeContext().getListState(
+                                        new ListStateDescriptor<String>("countListState", BasicTypeInfo.STRING_TYPE_INFO));
+                            }
+
+                            @Override
+                            public void flatMap(Tuple2<String, String> input,
+                                                Collector<Tuple2<String, Long>> collector) throws Exception {
+
+                                long size = 0;
+                                if(input.f1.equals("clear")){
+                                    System.out.println("Clearing list state for key " + input.f0);
+                                    countListState.clear();
+                                }
+                                else{
+                                    countListState.add(input.f0);
+                                    for(String t : countListState.get()){
+                                        size++;
+                                    }
+                                }
+
+                                collector.collect(new Tuple2<>(input.f0, size));
+                            }
+                        });
+        count.print();
+        env.execute("List count example execution");
     }
 
 

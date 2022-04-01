@@ -59,7 +59,8 @@ public class MapStateJob {
                 wordCountMapOperationCrash(env);
                 break;
             case 4:
-                wordCountOperationCrash(env);
+                wordCountMapOperationClear(env);
+                break;
             default:
                 break;
         }
@@ -74,7 +75,7 @@ public class MapStateJob {
     }
 
     static void wordCountMapOperationCrash(StreamExecutionEnvironment env) throws Exception {
-        //open socket with nc -l 9999 before running the program
+        //open socket with nc -l -k 9999 before running the program
         DataStream<String> data = env.socketTextStream("localhost", 9999);
 
         DataStream<Tuple2<String, Long>> count =
@@ -124,74 +125,65 @@ public class MapStateJob {
         env.execute("Map WordCount with crash");
     }
 
-
-    static void wordCountOperationCrash(StreamExecutionEnvironment env) throws Exception {
-        //open socket with nc -l 9999 before running the program
+    static void wordCountMapOperationClear(StreamExecutionEnvironment env) throws Exception {
+        //open socket with nc -l -k 9999 before running the program
         DataStream<String> data = env.socketTextStream("localhost", 9999);
 
-        DataStream<Tuple2<String, Tuple3<Long, Long, Long>>> count =
-                data.flatMap(new FlatMapFunction<String, String>() {
+        DataStream<Tuple2<String, Long>> count =
+                data.flatMap(new FlatMapFunction<String, Tuple2<String, String>>() {
+
                             @Override
-                            public void flatMap(String line, Collector<String> collector) throws Exception {
+                            public void flatMap(String line, Collector<Tuple2<String, String>> collector) throws Exception {
 
                                 String[] words = line.split(" ");
                                 String firstWord = words[0];
-                                if (firstWord.equals("flinkNDB")) {
-                                    throw new FlinkRuntimeException("KABOOM!");
-                                }
-                                collector.collect(firstWord);
+                                String secondWord = words.length > 1 ? words[1] : "";
+                                collector.collect(new Tuple2(firstWord, secondWord));
                             }
                         })
                         //make a keyed stream based on the first keyword
-                        .keyBy(word -> word)
+                        .keyBy(tuple -> tuple.f0)
 
                         //use manual state to count the words
-                        .flatMap(new RichFlatMapFunction<String, Tuple2<String, Tuple3<Long, Long, Long>>>() {
-                            ValueState<Long> countValueState;
-                            ListState<String> countListState;
+                        .flatMap(new RichFlatMapFunction<Tuple2<String, String>, Tuple2<String, Long>>() {
+
                             MapState<String, Long> countMapState;
 
                             @Override
                             public void open(Configuration parameters) throws Exception {
-                                countValueState = getRuntimeContext().getState(
-                                        new ValueStateDescriptor<Long>("countValueState", BasicTypeInfo.LONG_TYPE_INFO));
-                                countListState = getRuntimeContext().getListState(
-                                        new ListStateDescriptor<String>("countListState", BasicTypeInfo.STRING_TYPE_INFO));
                                 countMapState = getRuntimeContext().getMapState(
                                         new MapStateDescriptor<String, Long>("countMapState", BasicTypeInfo.STRING_TYPE_INFO, BasicTypeInfo.LONG_TYPE_INFO));
                             }
 
                             @Override
-                            public void flatMap(String input,
-                                                Collector<Tuple2<String, Tuple3<Long, Long, Long>>> collector) throws Exception {
-                                ;
+                            public void flatMap(Tuple2<String, String> input,
+                                                Collector<Tuple2<String, Long>> collector) throws Exception {
 
-                                long sizeV = 1L;
-                                if(countValueState.value() != null){
-                                    sizeV = countValueState.value()+1L;
-                                }
-                                countValueState.update(sizeV);
-
-                                countListState.add(input);
-                                long sizeL = 0L;
-                                for(String t : countListState.get()){
-                                    sizeL++;
-                                }
-
-                                Long sizeM = countMapState.get(input);
-                                if(sizeM != null){
-                                    sizeM++;
-                                    countMapState.put(input, sizeM);
+                                Long size = 0L;
+                                if(input.f1.equals("clear")){
+                                    System.out.println("Clearing list state for key " + input.f0);
+                                    countMapState.clear();
                                 }
                                 else{
-                                    sizeM = 1L;
-                                    countMapState.put(input, sizeM);
+                                    size = countMapState.get(input.f1);
+                                    if(size != null){
+                                        size++;
+                                        countMapState.put(input.f1, size);
+                                    }
+                                    else{
+                                        size = 1L;
+                                        countMapState.put(input.f1, size);
+                                    }
                                 }
-                                collector.collect(new Tuple2<>(input, new Tuple3<>(sizeV, sizeL, sizeM)));
+
+                                collector.collect(new Tuple2<>(input.f1, size));
                             }
                         });
         count.print();
-        env.execute("All State types WordCount with crash");
+        env.execute("MapState clear operation count example execution");
     }
+
+
+
 
 }

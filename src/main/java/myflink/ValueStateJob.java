@@ -21,7 +21,7 @@ import org.apache.flink.util.FlinkRuntimeException;
 public class ValueStateJob {
     public static void main(String[] args) throws Exception {
 
-        int example = 4;
+        int example = 3;
         //final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         final ParameterTool params = ParameterTool.fromArgs(args);
 
@@ -70,46 +70,18 @@ public class ValueStateJob {
 
         switch(example){
             case 1:
-                countWindowAverage(env);
-                break;
+                basicValueOperationCrash(env);
             case 2:
-                countWindowAverageCrash(env);
+                wordCountValueOperationCrash(env);
                 break;
             case 3:
-                basicValueOperationCrash(env);
-            case 4:
-                wordCountValueOperationCrash(env);
+                wordCountValueOperationClear(env);
                 break;
             default:
                 break;
         }
 
 
-    }
-
-    static void countWindowAverage(StreamExecutionEnvironment env) throws Exception {
-        System.out.println("Job: CountWindowAverage");
-
-        // this can be used in a streaming program like this (assuming we have a StreamExecutionEnvironment env)
-        env.fromElements(Tuple2.of(1L, 3L), Tuple2.of(1L, 5L), Tuple2.of(1L, 7L), Tuple2.of(1L, 4L), Tuple2.of(1L, 2L))
-                .keyBy(value -> value.f0)
-                .flatMap(new CountWindowAverage())
-                .print();
-        // the printed output will be (1,4) and (1,5)
-        env.execute("Count Window Average");
-    }
-
-    static void countWindowAverageCrash(StreamExecutionEnvironment env) throws Exception {
-        System.out.println("Job: CountWindowAverageCrash");
-        boolean kaboom = true;
-
-        // this can be used in a streaming program like this (assuming we have a StreamExecutionEnvironment env)
-        env.fromElements(Tuple2.of(1L, 3L), Tuple2.of(1L, 5L), Tuple2.of(1L, 7L), Tuple2.of(1L, 4L), Tuple2.of(1L, 2L), Tuple2.of(8L, 3L), Tuple2.of(4L, 4L), Tuple2.of(2L, 7L))
-                .keyBy(value -> value.f0)
-                .flatMap(new CountWindowAverage())
-                .print();
-        // the printed output will be (1,4) and (1,5)
-        env.execute("Count Window Average Crash");
     }
 
     static void basicValueOperationCrash(StreamExecutionEnvironment env) throws Exception {
@@ -148,7 +120,7 @@ public class ValueStateJob {
     }
 
     static void wordCountValueOperationCrash(StreamExecutionEnvironment env) throws Exception {
-        //open socket with nc -l 9999 before running the program
+        //open socket with nc -l -k 9999 before running the program
         DataStream<String> data = env.socketTextStream("localhost", 9999);
 
         DataStream<Tuple2<String, Long>> count =
@@ -193,57 +165,57 @@ public class ValueStateJob {
                         });
         count.print();
         env.execute("List count example execution");
-
     }
 
+    static void wordCountValueOperationClear(StreamExecutionEnvironment env) throws Exception {
+        //open socket with nc -l -k 9999 before running the program
+        DataStream<String> data = env.socketTextStream("localhost", 9999);
 
-}
+        DataStream<Tuple2<String, Long>> count =
+                data.flatMap(new FlatMapFunction<String, Tuple2<String, String>>() {
 
-class CountWindowAverage extends RichFlatMapFunction<Tuple2<Long, Long>, Tuple2<Long, Long>> {
-    /**
-     * The ValueState handle. The first field is the count, the second field a running sum.
-     */
-    private transient ValueState<Tuple2<Long, Long>> sum;
+                            @Override
+                            public void flatMap(String line, Collector<Tuple2<String, String>> collector) throws Exception {
 
-    private boolean kaboom = true;
+                                String[] words = line.split(" ");
+                                String firstWord = words[0];
+                                String secondWord = words.length > 1 ? words[1] : "";
+                                collector.collect(new Tuple2(firstWord, secondWord));
+                            }
+                        })
+                        //make a keyed stream based on the first keyword
+                        .keyBy(tuple -> tuple.f0)
 
-    @Override
-    public void flatMap(Tuple2<Long, Long> input, Collector<Tuple2<Long, Long>> out) throws Exception {
+                        //use manual state to count the words
+                        .flatMap(new RichFlatMapFunction<Tuple2<String, String>, Tuple2<String, Long>>() {
 
-        // Cause node failure in middle of stream processing
-        if(input.f0 == 1L && input.f1 == 2L && kaboom){
-            kaboom = false;
-            throw new Exception("KABOOM!");
-        }
+                            ValueState<Long> countValueState;
 
-        // access the state value
-        Tuple2<Long, Long> currentSum = sum.value();
+                            @Override
+                            public void open(Configuration parameters) throws Exception {
+                                countValueState = getRuntimeContext().getState(
+                                        new ValueStateDescriptor<Long>("countValueState", BasicTypeInfo.LONG_TYPE_INFO));
+                            }
 
-        // update the count
-        currentSum.f0 += 1;
-
-        // add the second field of the input value
-        currentSum.f1 += input.f1;
-
-        // update the state
-        sum.update(currentSum);
-
-        // if the count reaches 2, emit the average and clear the state
-        if (currentSum.f0 >= 2) {
-            out.collect(new Tuple2<>(input.f0, currentSum.f1 / currentSum.f0));
-            sum.clear();
-        }
+                            @Override
+                            public void flatMap(Tuple2<String, String> input,
+                                                Collector<Tuple2<String, Long>> collector) throws Exception {
+                                long size = 0L;
+                                if(input.f1.equals("clear")){
+                                    System.out.println("Clearing values state for key " + input.f0);
+                                    countValueState.clear();
+                                }
+                                else{
+                                    if(countValueState.value() != null){
+                                        size = countValueState.value()+1L;
+                                    }
+                                    countValueState.update(size);
+                                }
+                                collector.collect(new Tuple2<>(input.f0, size));
+                            }
+                        });
+        count.print();
+        env.execute("List count example execution");
     }
-
-    @Override
-    public void open(Configuration config) {
-        ValueStateDescriptor<Tuple2<Long, Long>> descriptor =
-                new ValueStateDescriptor<>(
-                        "average", // the state name
-                        TypeInformation.of(new TypeHint<Tuple2<Long, Long>>() {}), // type information
-                        Tuple2.of(0L, 0L)); // default value of the state, if nothing was set
-        sum = getRuntimeContext().getState(descriptor);
-    }
-
 
 }
