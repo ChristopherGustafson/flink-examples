@@ -21,7 +21,6 @@ import org.apache.flink.util.FlinkRuntimeException;
 public class ValueStateJob {
     public static void main(String[] args) throws Exception {
 
-        int example = 3;
         //final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         final ParameterTool params = ParameterTool.fromArgs(args);
 
@@ -33,8 +32,8 @@ public class ValueStateJob {
         config.setString("state.backend.ndb.connectionstring", "127.0.0.1");
         config.setString("state.backend.ndb.dbname", "flinkndb");
         config.setString("state.backend.ndb.truncatetableonstart", "false");
+        config.setString("state.backend.ndb.lazyrecovery", "true");
         config.setString("execution.checkpointing.checkpoints-after-tasks-finish.enabled", "true");
-
         config.setString("state.savepoints.dir", "file:///tmp/flinksavepoints");
         config.setString("state.checkpoints.dir", "file:///tmp/flinkcheckpoints");
 
@@ -42,12 +41,6 @@ public class ValueStateJob {
         if (params.has("sb")) {
             config.setString("state.backend", params.get("sb"));
         }
-
-        //example
-        if (params.has("e")) {
-            example = Integer.parseInt(params.get("e"));
-        }
-
 
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(config);
 
@@ -68,6 +61,7 @@ public class ValueStateJob {
             env.setParallelism(1);
         }
 
+        int example = 2;
         switch(example){
             case 1:
                 basicValueOperationCrash(env);
@@ -80,8 +74,6 @@ public class ValueStateJob {
             default:
                 break;
         }
-
-
     }
 
     static void basicValueOperationCrash(StreamExecutionEnvironment env) throws Exception {
@@ -155,9 +147,12 @@ public class ValueStateJob {
                             public void flatMap(String input,
                                                 Collector<Tuple2<String, Long>> collector) throws Exception {
 
-                                long size = 0L;
-                                if(countValueState.value() != null){
-                                    size = countValueState.value()+1L;
+                                Long size = countValueState.value();
+                                if(size != null){
+                                    size = size+1L;
+                                }
+                                else {
+                                    size = 0L;
                                 }
                                 countValueState.update(size);
                                 collector.collect(new Tuple2<>(input, size));

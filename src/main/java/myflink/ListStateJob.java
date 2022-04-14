@@ -35,6 +35,7 @@ public class ListStateJob {
         config.setString("state.backend.ndb.connectionstring", "127.0.0.1");
         config.setString("state.backend.ndb.dbname", "flinkndb");
         config.setString("state.backend.ndb.truncatetableonstart", "false");
+        config.setString("state.backend.ndb.lazyrecovery", "true");
         config.setString("execution.checkpointing.checkpoints-after-tasks-finish.enabled", "true");
 
         config.setString("state.savepoints.dir", "file:///tmp/flinksavepoints");
@@ -48,7 +49,7 @@ public class ListStateJob {
 
         env.setParallelism(2);
 
-        int example = 4;
+        int example = 3;
         switch (example) {
             case 1:
                 basicListOperation(env);

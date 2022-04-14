@@ -34,7 +34,7 @@ public class MapStateJob {
         config.setString("state.backend.ndb.dbname", "flinkndb");
         config.setString("state.backend.ndb.truncatetableonstart", "false");
         config.setString("execution.checkpointing.checkpoints-after-tasks-finish.enabled", "true");
-
+        config.setString("state.backend.ndb.lazyrecovery", "true");
         config.setString("state.savepoints.dir", "file:///tmp/flinksavepoints");
         config.setString("state.checkpoints.dir", "file:///tmp/flinkcheckpoints");
 
@@ -47,7 +47,7 @@ public class MapStateJob {
         env.setParallelism(2);
 
 
-        int example = 4;
+        int example = 3;
         switch (example) {
             case 1:
                 basicMapOperation(env);
